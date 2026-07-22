@@ -1,0 +1,208 @@
+name: christiangeorgelucas/vcf-tools
+version: 0.1.0
+language: typescript
+description: >-
+  Deterministic parsing and structural inspection of VCF (Variant Call
+  Format) files -- the standard bioinformatics format for genetic
+  variants (SNPs, indels) with header metadata, per-variant fields,
+  INFO/FORMAT annotations, and per-sample genotypes. Every node is a
+  pure text transform: the VCF is always supplied as a string by the
+  caller -- no reference-genome lookups, no network, no wall-clock, no
+  randomness. Wraps @gmod/vcf (the GMOD project's pure-JS VCF parser,
+  MIT, zero runtime dependencies) -- the header/variant-line/genotype
+  parsing and typed-value decoding all belong to the library; these
+  nodes are thin, bounded wrappers around it. Covers the VCF-inspection
+  surface broadly: header metadata (fileformat, INFO/FORMAT/FILTER
+  definitions, contigs, sample names); full variant-record listing and
+  single-position lookup; typed INFO parsing; per-sample genotype
+  decoding (zygosity, phasing) and general per-sample FORMAT-field
+  parsing; sample-name listing; REF/ALT-length variant-type
+  classification; filtering by FILTER status, by region, and by an
+  INFO/QUAL numeric threshold; summary counts; per-chromosome position
+  listing; and structural validation with line-numbered issues.
+  vcf_text is bounded to 3 MiB and 300,000 data lines, and every
+  listing node caps how many records it materializes into a single
+  response (reporting the true total separately) to stay well under the
+  platform's transport limit on a VCF that may hold millions of
+  variants. A malformed or oversized VCF returns a structured error
+  instead of a crash.
+license: MIT
+author: Christian George Lucas
+tags:
+  - bioinformatics
+  - genomics
+  - vcf
+  - variant-calling
+  - gmod
+nodes:
+    - name: ParseHeader
+      input: VcfInput
+      output: HeaderInfo
+      description: >-
+        Parses a VCF's meta-header into structured metadata: the
+        ##fileformat version, every ##INFO/##FORMAT field definition (ID,
+        Number, Type, Description), every ##FILTER definition, every
+        ##contig declaration (ID, length, assembly), and the
+        sample-column names from the #CHROM column-header line. Reports
+        only what this file's header explicitly declares -- not the
+        VCF-spec reserved INFO/FORMAT defaults a variant line may still
+        rely on implicitly. A header that doesn't parse (no #CHROM line,
+        wrong column names, etc.) or vcf_text over 3 MiB returns a
+        structured error instead of a crash.
+    - name: ListVariants
+      input: ListVariantsInput
+      output: VariantList
+      description: >-
+        Parses a VCF's variant data lines into structured records
+        (CHROM, POS, ID, REF, ALT, QUAL, FILTER, and a typed INFO map).
+        This is the canonical variant parse -- every filter node returns
+        the same VariantList shape, scoped to a predicate. max_variants
+        caps how many records are materialized into the response
+        (default 2000, hard cap 20000); total_count/truncated report the
+        true count regardless of the cap. A malformed VCF (bad header or
+        a data line that fails to parse) returns a structured error
+        instead of a crash.
+    - name: GetVariant
+      input: GetVariantInput
+      output: VariantResult
+      description: >-
+        Extracts a single variant by exact CHROM+POS match. found is
+        false (with no error) when the VCF parses fine but has no
+        variant at that position -- a legitimate outcome, not a failure.
+        A malformed VCF returns a structured error instead of a crash.
+    - name: GetVariantInfo
+      input: GetVariantInput
+      output: VariantInfoResult
+      description: >-
+        Extracts one variant's INFO field, already parsed into a typed
+        key->value map using the header's INFO Type declarations (e.g.
+        AF as Float, DP as Integer) -- a scoped view of GetVariant for
+        callers who only need the INFO annotations. found is false (no
+        error) when the VCF parses fine but has no variant at that
+        CHROM+POS. A malformed VCF returns a structured error instead of
+        a crash.
+    - name: GetGenotypes
+      input: GetVariantInput
+      output: GenotypesResult
+      description: >-
+        Extracts and decodes every sample's genotype (GT) call for one
+        variant: the raw GT string, whether it's phased ("|") or
+        unphased ("/"), the per-allele indices (0 = REF, 1+ =
+        ALT[index-1], -1 = missing "."), and a zygosity label
+        (homozygous_ref / heterozygous / homozygous_alt / missing /
+        partial_missing / no_call). One entry per header-declared
+        sample, even if this variant carries no FORMAT/GT data for it
+        (no_call). found is false (no error) when the VCF parses fine
+        but has no variant at that CHROM+POS. A malformed VCF returns a
+        structured error instead of a crash.
+    - name: GetSampleFields
+      input: GetVariantInput
+      output: SampleFieldsResult
+      description: >-
+        Parses one variant's FORMAT column + every sample's column into
+        a structured per-sample field map -- every FORMAT key (GT, AD,
+        DP, GQ, PL, ...), not just GT (see GetGenotypes for a GT-only,
+        zygosity-decoded view). Each field is typed per the header's
+        FORMAT Type declaration. One entry per header-declared sample; a
+        sample with no data for this variant gets an empty field map.
+        found is false (no error) when the VCF parses fine but has no
+        variant at that CHROM+POS. A malformed VCF returns a structured
+        error instead of a crash.
+    - name: ListSamples
+      input: VcfInput
+      output: SampleList
+      description: >-
+        Lists the sample (genotype-column) names declared on a VCF's
+        #CHROM column-header line, in file order. Empty for a site-only
+        VCF with no sample columns. A malformed VCF returns a structured
+        error instead of a crash.
+    - name: ClassifyVariantTypes
+      input: ListVariantsInput
+      output: VariantTypeList
+      description: >-
+        Classifies every variant's type from REF-vs-ALT length and
+        shared-prefix string comparison (no alignment) -- SNP (equal
+        length 1), MNP (equal length > 1), INSERTION/DELETION (a clean
+        length difference where the shorter allele is a prefix of the
+        longer), COMPLEX (anything else, including symbolic
+        <DEL>/breakend ALTs), or NO_VARIANT (ALT was "."). A
+        multi-allelic site gets one type per ALT allele plus a
+        variant_type summary ("MIXED" if the alleles disagree).
+        max_variants bounds the response the same way as ListVariants; a
+        malformed VCF returns a structured error instead of a crash.
+    - name: FilterByFilterStatus
+      input: FilterByStatusInput
+      output: VariantList
+      description: >-
+        Filters a VCF's variants to those whose FILTER column intersects
+        a caller-chosen set of statuses (e.g. ["PASS"] for only variants
+        that passed all filters). Matching is exact against the
+        semicolon-split FILTER values. total_count is the number of
+        MATCHING variants (not the file's total); max_variants bounds
+        how many are materialized into the response the same way as
+        ListVariants. A malformed VCF returns a structured error instead
+        of a crash.
+    - name: FilterByRegion
+      input: FilterByRegionInput
+      output: VariantList
+      description: >-
+        Filters a VCF's variants to one chromosome, optionally bounded
+        to a POS range: [start, end] inclusive when has_start/has_end
+        are set, unbounded on whichever side is unset. chrom is required
+        (a structural MISSING_CHROM error if empty). total_count is the
+        number of MATCHING variants; max_variants bounds how many are
+        materialized into the response the same way as ListVariants. A
+        malformed VCF returns a structured error instead of a crash.
+    - name: FilterByInfoThreshold
+      input: FilterByInfoInput
+      output: VariantList
+      description: >-
+        Filters a VCF's variants by a numeric threshold on one INFO
+        field (e.g. AF>=0.01, DP>=10), or on QUAL itself when info_key
+        is the literal string "QUAL". op must be one of ">=", "<=", ">",
+        "<", "==", "!=" (a structural INVALID_OPERATOR error otherwise).
+        A multi-valued INFO field compares against its first numeric
+        value; a variant missing the key (or with QUAL unset) does not
+        match. total_count is the number of MATCHING variants;
+        max_variants bounds how many are materialized into the response
+        the same way as ListVariants. A malformed VCF returns a
+        structured error instead of a crash.
+    - name: CountVariants
+      input: VcfInput
+      output: VariantCounts
+      description: >-
+        Summarizes a VCF's variants: total count, counts by
+        REF/ALT-length-derived type (SNP/INSERTION/DELETION/MNP/COMPLEX/
+        MIXED/NO_VARIANT -- see ClassifyVariantTypes), and counts by
+        chromosome. Unlike ListVariants/ClassifyVariantTypes, this scans
+        every data line regardless of any response-size limit, since the
+        output is just two small maps -- bounded by 300000 data lines,
+        not by a materialized-record cap. A malformed VCF returns a
+        structured error instead of a crash.
+    - name: ListPositionsForChromosome
+      input: ChromPositionsInput
+      output: ChromPositions
+      description: >-
+        Extracts every variant's POS on one chromosome, as a flat list
+        of integers -- a lightweight alternative to FilterByRegion when
+        all you need is the positions, not full records. max_positions
+        bounds how many are returned (default 5000, hard cap 200000);
+        total_count/truncated report the true match count regardless of
+        the cap. A malformed VCF (bad header) returns a structured error
+        instead of a crash; an individual unparseable data line is
+        skipped rather than failing the whole call, since this node only
+        reads the CHROM/POS columns directly.
+    - name: ValidateStructure
+      input: VcfInput
+      output: ValidationResult
+      description: >-
+        Validates a VCF's basic structural correctness without relying
+        on a throwing parser: checks for the presence of a header, a
+        well-formed #CHROM column-header line (exact required column
+        names, in order), consistent column counts on every data line,
+        and simple per-column sanity (non-empty CHROM/REF, a
+        positive-integer POS). Every issue is reported with its 1-based
+        line number (0 for a file-level issue, e.g. no header at all)
+        and a severity ("error" = structurally invalid, "warning" =
+        suspicious but not necessarily invalid); valid is true iff no
+        "error"-severity issue was found.

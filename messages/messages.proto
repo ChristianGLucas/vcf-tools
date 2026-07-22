@@ -1,0 +1,297 @@
+// This file defines the data contracts (messages) for your Axiom package.
+// Every node's --input and --output refers to a message defined here.
+//
+// Run `axiom create message <Name>` to scaffold a new message below.
+// Run `axiom generate` to compile these definitions into language bindings in gen/.
+//
+// DOCUMENTATION
+//   Comments written directly above a message or field declaration are extracted
+//   automatically at publish time and shown in the Axiom registry as documentation.
+//   Write your descriptions there — no separate doc files needed.
+//
+//   Leading comment  (no blank line before the declaration) → registry description ✓
+//   Detached comment (blank line before the declaration)    → ignored by registry  ✗
+//
+// This file is yours to edit. Axiom only appends new message blocks — it never
+// overwrites or removes content you have written.
+
+syntax = "proto3";
+
+package christiangeorgelucas.vcf_tools;
+
+// Every node in this package is a pure, deterministic text transform over a
+// VCF (Variant Call Format) document supplied as a string by the caller.
+// No reference-genome lookups, no network, no wall-clock, no randomness.
+// vcf_text is bounded to 3 MiB and 300,000 data lines before any parsing is
+// attempted; a malformed VCF or an oversized input returns a structured
+// Error rather than a crash. Wraps @gmod/vcf (GMOD project, MIT, pure JS,
+// zero runtime dependencies) — the parsing/typing/genotype-decoding logic
+// all belongs to the library; these nodes are thin, bounded, typed
+// wrappers around it.
+
+// A structured parse/validation error. `code` empty means success.
+message Error {
+  // A short machine-readable code, e.g. "EMPTY_INPUT", "TOO_LARGE",
+  // "TOO_MANY_LINES", "MALFORMED_HEADER", "MALFORMED_LINE".
+  string code = 1;
+  // A human-readable description of what went wrong.
+  string message = 2;
+}
+
+// Raw VCF text (meta header lines + column header + variant data lines),
+// taken as input by header/listing/count/validation nodes.
+message VcfInput {
+  string vcf_text = 1;
+}
+
+// One ##INFO or ##FORMAT meta-header field definition.
+message FieldDef {
+  string id = 1;
+  // VCF "Number": a non-negative integer count as a string, or one of
+  // "A" (one per ALT allele), "R" (one per allele incl. REF), "G" (one per
+  // genotype), "." (unknown/variable).
+  string number = 2;
+  // "Integer", "Float", "Flag", "Character", or "String".
+  string type = 3;
+  string description = 4;
+}
+
+// One ##FILTER meta-header definition.
+message FilterDef {
+  string id = 1;
+  string description = 2;
+}
+
+// One ##contig meta-header declaration.
+message ContigDef {
+  string id = 1;
+  int64 length = 2;
+  bool has_length = 3;
+  string assembly = 4;
+}
+
+// The VCF header, fully parsed: file-format version, every INFO/FORMAT/
+// FILTER/contig declaration, and the sample-column names.
+message HeaderInfo {
+  // e.g. "VCFv4.2", empty if no ##fileformat line was present.
+  string fileformat = 1;
+  repeated FieldDef info_fields = 2;
+  repeated FieldDef format_fields = 3;
+  repeated FilterDef filters = 4;
+  repeated ContigDef contigs = 5;
+  repeated string sample_names = 6;
+  Error error = 7;
+}
+
+// One INFO or per-sample FORMAT value, typed per the header's declared
+// Type (or "String" as a safe fallback for an undeclared key). Read the
+// bucket matching `type`; a Flag-type key sets `present` true and carries
+// no values. A "." (missing) entry in a multi-valued field is omitted
+// from its bucket, so bucket length can be less than the field's
+// declared Number.
+message TypedValues {
+  string type = 1;
+  repeated int64 int_values = 2;
+  repeated double float_values = 3;
+  repeated string string_values = 4;
+  bool present = 5;
+}
+
+// One fully parsed variant record.
+message Variant {
+  string chrom = 1;
+  int64 pos = 2;
+  // Semicolon-separated IDs from the ID column; empty if the column was ".".
+  repeated string id = 3;
+  string ref = 4;
+  // Comma-separated ALT alleles; empty if the column was "." (no variant,
+  // monomorphic reference).
+  repeated string alt = 5;
+  double qual = 6;
+  bool has_qual = 7;
+  // ["PASS"] on a pass; the list of failing filter IDs on a fail; empty
+  // if the column was "." (not evaluated).
+  repeated string filter = 8;
+  map<string, TypedValues> info = 9;
+  // Raw colon-joined FORMAT key list, e.g. "GT:AD:DP:GQ:PL". Empty if this
+  // VCF carries no sample/genotype columns.
+  string format = 10;
+}
+
+message ListVariantsInput {
+  string vcf_text = 1;
+  // Maximum variants to materialize into the response (default 2000, hard
+  // cap 20000) — bounds response size under the platform's transport limit
+  // independent of how many variants the VCF actually contains.
+  int32 max_variants = 2;
+}
+
+// A page of variant records plus how many data lines actually matched,
+// so a caller can tell a small VCF from a truncated large one.
+message VariantList {
+  repeated Variant variants = 1;
+  int64 total_count = 2;
+  bool truncated = 3;
+  Error error = 4;
+}
+
+message GetVariantInput {
+  string vcf_text = 1;
+  string chrom = 2;
+  int64 pos = 3;
+}
+
+message VariantResult {
+  Variant variant = 1;
+  bool found = 2;
+  Error error = 3;
+}
+
+message VariantInfoResult {
+  string chrom = 1;
+  int64 pos = 2;
+  map<string, TypedValues> info = 3;
+  bool found = 4;
+  Error error = 5;
+}
+
+// One sample's decoded genotype call for one variant.
+message SampleGenotype {
+  string sample = 1;
+  // Raw GT string as written, e.g. "0/1", "1|0", "./.". Empty if this
+  // variant has no FORMAT/GT column or this sample has no GT entry.
+  string gt_raw = 2;
+  bool has_gt = 3;
+  // "/"-separated = false (unphased), "|"-separated = true (phased).
+  bool phased = 4;
+  // Allele indices in call order (0 = REF, 1+ = ALT[index-1]); -1 marks a
+  // missing ("." ) allele. Empty when has_gt is false.
+  repeated int32 allele_indices = 5;
+  // "homozygous_ref", "heterozygous", "homozygous_alt", "missing"
+  // (every allele is "."), "partial_missing" (some but not all), or
+  // "no_call" (has_gt false).
+  string zygosity = 6;
+}
+
+message GenotypesResult {
+  string chrom = 1;
+  int64 pos = 2;
+  repeated SampleGenotype genotypes = 3;
+  bool found = 4;
+  Error error = 5;
+}
+
+// One sample's full FORMAT-column field map for one variant (superset of
+// GetGenotypes — every FORMAT key, e.g. GT/AD/DP/GQ/PL, not just GT).
+message SampleFields {
+  string sample = 1;
+  map<string, TypedValues> fields = 2;
+}
+
+message SampleFieldsResult {
+  string chrom = 1;
+  int64 pos = 2;
+  repeated SampleFields samples = 3;
+  bool found = 4;
+  Error error = 5;
+}
+
+message SampleList {
+  repeated string sample_names = 1;
+  Error error = 2;
+}
+
+// One variant's REF/ALT-length-derived type classification.
+message VariantTypeEntry {
+  string chrom = 1;
+  int64 pos = 2;
+  string ref = 3;
+  repeated string alt = 4;
+  // Per-ALT-allele classification, parallel to `alt`: "SNP", "INSERTION",
+  // "DELETION", "MNP" (multi-nucleotide substitution, equal length > 1),
+  // or "COMPLEX" (neither a clean length-only insertion/deletion nor an
+  // equal-length substitution).
+  repeated string allele_types = 5;
+  // A single summary: the shared type if every ALT allele agrees,
+  // "MIXED" if they disagree, or "NO_VARIANT" if ALT was "." (no
+  // alternate allele, e.g. a monomorphic-reference gVCF record).
+  string variant_type = 6;
+}
+
+message VariantTypeList {
+  repeated VariantTypeEntry types = 1;
+  int64 total_count = 2;
+  bool truncated = 3;
+  Error error = 4;
+}
+
+message FilterByStatusInput {
+  string vcf_text = 1;
+  // Variant passes if its FILTER column intersects this set, e.g.
+  // ["PASS"]. Matching is exact against the semicolon-split FILTER
+  // values (case-sensitive, per spec).
+  repeated string statuses = 2;
+  int32 max_variants = 3;
+}
+
+message FilterByRegionInput {
+  string vcf_text = 1;
+  string chrom = 2;
+  int64 start = 3;
+  int64 end = 4;
+  bool has_start = 5;
+  bool has_end = 6;
+  int32 max_variants = 7;
+}
+
+message FilterByInfoInput {
+  string vcf_text = 1;
+  // The INFO key to threshold on, e.g. "AF" or "DP". The literal key
+  // "QUAL" is special-cased to compare the variant's QUAL column instead
+  // of an INFO entry. Multi-valued INFO fields compare against their
+  // first numeric value.
+  string info_key = 2;
+  // One of ">=", "<=", ">", "<", "==", "!=".
+  string op = 3;
+  double threshold = 4;
+  int32 max_variants = 5;
+}
+
+message VariantCounts {
+  int64 total = 1;
+  map<string, int64> by_type = 2;
+  map<string, int64> by_chromosome = 3;
+  Error error = 4;
+}
+
+message ChromPositionsInput {
+  string vcf_text = 1;
+  string chrom = 2;
+  // Default 5000, hard cap 200000.
+  int32 max_positions = 3;
+}
+
+message ChromPositions {
+  string chrom = 1;
+  repeated int64 positions = 2;
+  int64 total_count = 3;
+  bool truncated = 4;
+  Error error = 5;
+}
+
+// One structural issue found while validating a VCF, with the 1-based
+// line number it occurred on (0 when the issue is file-level, e.g. no
+// header at all).
+message ValidationIssue {
+  int32 line_number = 1;
+  // "error" (the file is structurally invalid) or "warning" (suspicious
+  // but not necessarily invalid).
+  string severity = 2;
+  string code = 3;
+  string message = 4;
+}
+
+message ValidationResult {
+  bool valid = 1;
+  repeated ValidationIssue issues = 2;
+}
