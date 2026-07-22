@@ -43,4 +43,16 @@ describe('FilterByRegion', () => {
     expect(result.hasError()).toBe(true);
     expect(result.getError()!.getCode()).toBe('MISSING_CHROM');
   });
+
+  it('returns a structured MALFORMED_LINE error, not a crash, for a non-numeric POS', () => {
+    const vcf = ['##fileformat=VCFv4.2', '#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO', '1\tXYZ\t.\tA\tG\t.\t.\t.'].join(
+      '\n',
+    );
+    const input = new FilterByRegionInput();
+    input.setVcfText(vcf);
+    input.setChrom('1');
+    const result = filterByRegion(testContext, input);
+    expect(result.hasError()).toBe(true);
+    expect(result.getError()!.getCode()).toBe('MALFORMED_LINE');
+  });
 });

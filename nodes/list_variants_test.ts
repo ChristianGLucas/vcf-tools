@@ -80,4 +80,20 @@ describe('ListVariants', () => {
     expect(result.hasError()).toBe(true);
     expect(result.getError()!.getCode()).toBe('MALFORMED_LINE');
   });
+
+  it('returns a structured MALFORMED_LINE error, not a crash, for a non-numeric POS', () => {
+    // Regression test: @gmod/vcf does not throw on a non-numeric POS -- it
+    // silently coerces it to NaN, which used to reach the proto int64
+    // setter and crash with an opaque "Assertion failed" at serialization
+    // time (caught by an independent adversarial review, not the original
+    // test suite). parseLineSafe now rejects it up front.
+    const broken = [
+      '##fileformat=VCFv4.2',
+      '#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO',
+      '1\tXYZ\trs1\tA\tG\t50\tPASS\tDP=10',
+    ].join('\n');
+    const result = listVariants(testContext, mkInput(broken));
+    expect(result.hasError()).toBe(true);
+    expect(result.getError()!.getCode()).toBe('MALFORMED_LINE');
+  });
 });

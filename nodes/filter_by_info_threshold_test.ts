@@ -36,4 +36,18 @@ describe('FilterByInfoThreshold', () => {
     expect(result.hasError()).toBe(true);
     expect(result.getError()!.getCode()).toBe('INVALID_OPERATOR');
   });
+
+  it('returns a structured MALFORMED_LINE error, not a crash, for a non-numeric POS', () => {
+    const vcf = ['##fileformat=VCFv4.2', '#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO', '1\tXYZ\t.\tA\tG\t.\t.\tDP=10'].join(
+      '\n',
+    );
+    const input = new FilterByInfoInput();
+    input.setVcfText(vcf);
+    input.setInfoKey('DP');
+    input.setOp('>=');
+    input.setThreshold(1);
+    const result = filterByInfoThreshold(testContext, input);
+    expect(result.hasError()).toBe(true);
+    expect(result.getError()!.getCode()).toBe('MALFORMED_LINE');
+  });
 });

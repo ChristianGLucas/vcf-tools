@@ -309,15 +309,25 @@ function setInfoMap(
 
 /** Converts one @gmod/vcf parsed Variant into our proto Variant message
  * (core fields + typed INFO map). Does not touch genotypes/samples --
- * see decodeGenotype / sample-field helpers below for that. */
+ * see decodeGenotype / sample-field helpers below for that.
+ *
+ * Defensively guards POS/QUAL against NaN: @gmod/vcf does not throw on a
+ * non-numeric POS/QUAL column, it silently coerces to NaN (`+"XYZ"` ===
+ * NaN) -- and an int64 proto field's setter (unlike a double field's)
+ * throws its own opaque "Assertion failed" at serialization time if
+ * handed NaN, well after this function returns "successfully". Callers
+ * that scan every data line (parseLineSafe, below) already reject a
+ * non-finite POS up front as MALFORMED_LINE, so this is belt-and-
+ * suspenders for any future caller of variantToProto that doesn't route
+ * through parseLineSafe. */
 export function variantToProto(v: GmodVariant, parser: VCFParser): Variant {
   const out = new Variant();
   out.setChrom(v.CHROM ?? '');
-  out.setPos(v.POS ?? 0);
+  out.setPos(Number.isFinite(v.POS) ? v.POS : 0);
   if (v.ID) out.setIdList(v.ID);
   out.setRef(v.REF ?? '');
   if (v.ALT) out.setAltList(v.ALT);
-  if (v.QUAL !== undefined) {
+  if (v.QUAL !== undefined && Number.isFinite(v.QUAL)) {
     out.setQual(v.QUAL);
     out.setHasQual(true);
   }
@@ -332,13 +342,25 @@ export function variantToProto(v: GmodVariant, parser: VCFParser): Variant {
 /** Parses one data line, tagging any thrown error as a LineParseError with
  * a data-line number (position within the data-line list, not necessarily
  * the original file's line number, since blank/header lines are excluded
- * from that list) so the caller can report exactly where parsing broke. */
+ * from that list) so the caller can report exactly where parsing broke.
+ *
+ * Also rejects a non-finite POS (@gmod/vcf coerces a non-numeric POS
+ * column to NaN rather than throwing -- see variantToProto's comment) as
+ * MALFORMED_LINE, honoring this package's "malformed line -> structured
+ * error, not a crash" contract instead of letting NaN reach a proto
+ * int64 setter downstream, where it would otherwise throw an opaque,
+ * uncaught "Assertion failed" at serialization time. */
 export function parseLineSafe(parser: VCFParser, line: string, dataLineNo: number): GmodVariant {
+  let v: GmodVariant;
   try {
-    return parser.parseLine(line);
+    v = parser.parseLine(line);
   } catch (e: any) {
     throw new LineParseError('MALFORMED_LINE', `data line ${dataLineNo}: ${e?.message ?? String(e)}`);
   }
+  if (!Number.isFinite(v.POS)) {
+    throw new LineParseError('MALFORMED_LINE', `data line ${dataLineNo}: POS is not numeric`);
+  }
+  return v;
 }
 
 /** Fast pre-parse scan for a single CHROM+POS match: compares the first

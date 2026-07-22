@@ -31,4 +31,16 @@ describe('FilterByFilterStatus', () => {
     expect(result.getVariantsList()).toEqual([]);
     expect(result.getTruncated()).toBe(false);
   });
+
+  it('returns a structured MALFORMED_LINE error, not a crash, for a non-numeric POS', () => {
+    const vcf = ['##fileformat=VCFv4.2', '#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO', '1\tXYZ\t.\tA\tG\t.\tPASS\t.'].join(
+      '\n',
+    );
+    const input = new FilterByStatusInput();
+    input.setVcfText(vcf);
+    input.setStatusesList(['PASS']);
+    const result = filterByFilterStatus(testContext, input);
+    expect(result.hasError()).toBe(true);
+    expect(result.getError()!.getCode()).toBe('MALFORMED_LINE');
+  });
 });
