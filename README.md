@@ -12,7 +12,7 @@ project's pure-JS VCF parser, MIT license, zero runtime dependencies) — the
 header/variant-line/genotype parsing and typed-value decoding all belong to
 the library; these nodes are thin, bounded wrappers around it.
 
-Built for the [Axiom](https://axiom.dev) marketplace, published under the
+Built for the [Axiom](https://axiomide.com) marketplace, published under the
 `christiangeorgelucas` handle.
 
 ## Nodes
