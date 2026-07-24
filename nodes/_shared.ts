@@ -16,19 +16,6 @@ import {
 // nodes. All parsing/typing/genotype-decoding logic is owned by @gmod/vcf
 // (GMOD project, MIT, pure JS, zero runtime deps) -- this module is glue.
 
-// Hard cap on the raw vcf_text every node accepts. Bounds cost (line
-// splitting, allocation, per-line parsing) up front, before any parsing
-// happens, and keeps us well under the platform's ~4 MiB transport limit
-// on both the request and any node that echoes variant data back.
-export const MAX_VCF_BYTES = 3 * 1024 * 1024; // 3 MiB
-
-// Sanity cap on the number of non-blank data (variant) lines a node will
-// process. A 3 MiB file cannot realistically contain more than a few
-// hundred thousand data lines, but a pathological file built from many
-// very short lines could approach that -- this stops unbounded CPU work
-// on such a file with a structured error instead of a very long request.
-export const MAX_LINES = 300_000;
-
 // Response-size bounds for nodes that materialize a page of full variant
 // records (which carry the heaviest per-item payload, an INFO map) --
 // VCFs routinely carry millions of variants, so every listing node caps
@@ -39,8 +26,6 @@ export const MAX_LIST_LIMIT = 20_000;
 // Positions are cheap (a single int64 each), so the cap is much higher.
 export const DEFAULT_POSITIONS_LIMIT = 5000;
 export const MAX_POSITIONS_LIMIT = 200_000;
-
-export const MAX_ISSUES = 500;
 
 export interface StructuredError {
   code: string;
@@ -71,8 +56,7 @@ export class LineParseError extends globalThis.Error {
 
 /** Splits raw VCF text into its header lines (every leading line starting
  * with "#", ending with and including the #CHROM column-header line) and
- * its data lines (every following non-blank line). Enforces MAX_VCF_BYTES
- * and MAX_LINES before returning. */
+ * its data lines (every following non-blank line). */
 export function splitVcf(vcfText: string): {
   headerLines: string[];
   dataLines: string[];
@@ -80,13 +64,6 @@ export function splitVcf(vcfText: string): {
 } {
   if (!vcfText || vcfText.length === 0) {
     return { headerLines: [], dataLines: [], error: err('EMPTY_INPUT', 'vcf_text is empty') };
-  }
-  if (Buffer.byteLength(vcfText, 'utf8') > MAX_VCF_BYTES) {
-    return {
-      headerLines: [],
-      dataLines: [],
-      error: err('TOO_LARGE', `vcf_text exceeds ${MAX_VCF_BYTES} bytes`),
-    };
   }
   const lines = vcfText.split(/\r\n|\r|\n/);
   const headerLines: string[] = [];
@@ -100,13 +77,6 @@ export function splitVcf(vcfText: string): {
     const line = lines[i];
     if (line.length === 0) continue;
     dataLines.push(line);
-    if (dataLines.length > MAX_LINES) {
-      return {
-        headerLines,
-        dataLines: [],
-        error: err('TOO_MANY_LINES', `more than ${MAX_LINES} data lines`),
-      };
-    }
   }
   return { headerLines, dataLines };
 }

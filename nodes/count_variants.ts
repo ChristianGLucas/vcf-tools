@@ -8,9 +8,8 @@ import { buildParser, parseLineSafe, classifyVariant, toErrorMsg, err, LineParse
  * see ClassifyVariantTypes), and counts by chromosome. Unlike
  * ListVariants/ClassifyVariantTypes, this scans every data line
  * regardless of any response-size limit, since the output is just two
- * small maps -- bounded by MAX_LINES (300000 data lines), not by a
- * materialized-record cap. A malformed VCF returns a structured error
- * instead of a crash.
+ * small maps, not a materialized-record list. A malformed VCF returns a
+ * structured error instead of a crash.
  *
  * @param ax - Platform context: ax.log for logging, ax.secrets for secrets.
  */

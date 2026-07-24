@@ -65,10 +65,14 @@ describe('ParseHeader', () => {
     expect(result.getError()!.getCode()).toBe('MALFORMED_HEADER');
   });
 
-  it('returns a structured TOO_LARGE error for oversized vcf_text', () => {
+  it('handles a large vcf_text with no crash', () => {
+    // This package no longer caps input size itself — the platform's
+    // ingress/transport already bounds request size. A well-formed
+    // header followed by a large data payload should still parse
+    // cleanly.
     const huge = '##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n' + 'x'.repeat(4 * 1024 * 1024);
     const result = parseHeader(testContext, mkInput(huge));
-    expect(result.hasError()).toBe(true);
-    expect(result.getError()!.getCode()).toBe('TOO_LARGE');
+    expect(result.hasError()).toBe(false);
+    expect(result.getFileformat()).toBe('VCFv4.2');
   });
 });

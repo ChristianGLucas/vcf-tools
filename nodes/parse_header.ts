@@ -9,9 +9,9 @@ import { buildParser, parseHeaderDeclared, toErrorMsg } from './_shared';
  * (ID, length, assembly), and the sample-column names from the #CHROM
  * column-header line. Reports only what this file's header explicitly
  * declares -- not the VCF-spec reserved INFO/FORMAT defaults a variant
- * line may still rely on implicitly. vcf_text over 3 MiB, or a header
- * that doesn't parse (no #CHROM line, wrong column names, etc.), returns
- * a structured error instead of a crash.
+ * line may still rely on implicitly. A header that doesn't parse (no
+ * #CHROM line, wrong column names, etc.) returns a structured error
+ * instead of a crash.
  *
  * @param ax - Platform context: ax.log for logging, ax.secrets for secrets.
  */

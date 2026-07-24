@@ -1,6 +1,5 @@
 import { VcfInput, ValidationResult, ValidationIssue } from '../gen/messages_pb';
 import { AxiomContext } from '../gen/axiomContext';
-import { MAX_VCF_BYTES, MAX_LINES, MAX_ISSUES } from './_shared';
 
 /**
  * Validates a VCF's basic structural correctness WITHOUT relying on a
@@ -11,9 +10,7 @@ import { MAX_VCF_BYTES, MAX_LINES, MAX_ISSUES } from './_shared';
  * reported with its 1-based line number (0 for a file-level issue, e.g.
  * no header at all) and a severity ("error" = structurally invalid,
  * "warning" = suspicious but not necessarily invalid); valid is true iff
- * no "error"-severity issue was found. Bounded the same way as every
- * other node (3 MiB, 300000 data lines) and caps the issues list at 500
- * so a wildly broken large file still returns promptly.
+ * no "error"-severity issue was found.
  *
  * @param ax - Platform context: ax.log for logging, ax.secrets for secrets.
  */
@@ -21,7 +18,6 @@ export function validateStructure(ax: AxiomContext, input: VcfInput): Validation
   const out = new ValidationResult();
   const issues: ValidationIssue[] = [];
   const addIssue = (lineNumber: number, severity: string, code: string, message: string) => {
-    if (issues.length >= MAX_ISSUES) return;
     const vi = new ValidationIssue();
     vi.setLineNumber(lineNumber);
     vi.setSeverity(severity);
@@ -39,10 +35,6 @@ export function validateStructure(ax: AxiomContext, input: VcfInput): Validation
   const text = input.getVcfText();
   if (!text || text.length === 0) {
     addIssue(0, 'error', 'EMPTY_INPUT', 'vcf_text is empty');
-    return finish();
-  }
-  if (Buffer.byteLength(text, 'utf8') > MAX_VCF_BYTES) {
-    addIssue(0, 'error', 'TOO_LARGE', `vcf_text exceeds ${MAX_VCF_BYTES} bytes`);
     return finish();
   }
 
@@ -86,15 +78,9 @@ export function validateStructure(ax: AxiomContext, input: VcfInput): Validation
   }
   const expectedColumnCount = headerFields.length;
 
-  let dataLineCount = 0;
   for (let i = headerEndIdx + 1; i < lines.length; i++) {
     const line = lines[i];
     if (line.length === 0) continue;
-    dataLineCount++;
-    if (dataLineCount > MAX_LINES) {
-      addIssue(i + 1, 'error', 'TOO_MANY_LINES', `more than ${MAX_LINES} data lines`);
-      break;
-    }
     const fields = line.split('\t');
     if (fields.length !== expectedColumnCount) {
       addIssue(i + 1, 'error', 'COLUMN_COUNT_MISMATCH', `line has ${fields.length} columns, expected ${expectedColumnCount}`);

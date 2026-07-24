@@ -22,17 +22,15 @@ package christiangeorgelucas.vcf_tools;
 // Every node in this package is a pure, deterministic text transform over a
 // VCF (Variant Call Format) document supplied as a string by the caller.
 // No reference-genome lookups, no network, no wall-clock, no randomness.
-// vcf_text is bounded to 3 MiB and 300,000 data lines before any parsing is
-// attempted; a malformed VCF or an oversized input returns a structured
-// Error rather than a crash. Wraps @gmod/vcf (GMOD project, MIT, pure JS,
-// zero runtime dependencies) — the parsing/typing/genotype-decoding logic
-// all belongs to the library; these nodes are thin, bounded, typed
-// wrappers around it.
+// A malformed VCF returns a structured Error rather than a crash. Wraps
+// @gmod/vcf (GMOD project, MIT, pure JS, zero runtime dependencies) — the
+// parsing/typing/genotype-decoding logic all belongs to the library; these
+// nodes are thin, typed wrappers around it.
 
 // A structured parse/validation error. `code` empty means success.
 message Error {
-  // A short machine-readable code, e.g. "EMPTY_INPUT", "TOO_LARGE",
-  // "TOO_MANY_LINES", "MALFORMED_HEADER", "MALFORMED_LINE".
+  // A short machine-readable code, e.g. "EMPTY_INPUT", "MALFORMED_HEADER",
+  // "MALFORMED_LINE".
   string code = 1;
   // A human-readable description of what went wrong.
   string message = 2;
